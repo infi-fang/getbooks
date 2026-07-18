@@ -29,25 +29,104 @@ def get_soup(url, session, timeout=20):
     return BeautifulSoup(resp.text, "html.parser")
 
 
-def extract_text_from_soup(soup):
+def remove_navigation_nodes(soup):
+    nav_patterns = re.compile(r"上一章|下一章|没有了|返回目录|章节导航|前一章|后一章|目录|章节列表|章节目录")
+
+    def should_remove(tag, text):
+        if not text:
+            return False
+        if re.search(r"[←→]", text):
+            return True
+        if tag.name in {"nav", "footer", "a"}:
+            return bool(nav_patterns.search(text))
+
+        if tag.name in {"div", "p", "span"}:
+            stripped = re.sub(r"\s+", "", text)
+            if len(stripped) < 120 and nav_patterns.search(text):
+                return True
+            if re.fullmatch(r"[←→\s上一章下一章没有了返回目录章节导航前一章后一章目录章节列表章节目录]+", text):
+                return True
+        return False
+
+    for tag in soup.find_all(["a", "span", "div", "p", "nav", "footer"]):
+        text = tag.get_text(" ", strip=True)
+        if should_remove(tag, text):
+            tag.decompose()
+    return soup
+
+
+def replace_image_tags_with_text(el):
+    for img in el.find_all("img"):
+        text = img.get("alt") or img.get("title") or img.get("aria-label") or ""
+        if not text:
+            text = "*"
+        img.replace_with(text)
+    return el
+
+
+def extract_text_from_section(soup):
     for cls in ["content", "chapter-content", "read-content", "book-content"]:
         el = soup.find("div", class_=cls)
         if el:
+            replace_image_tags_with_text(el)
             text = el.get_text("\n", strip=True)
             if len(text) > 50:
                 return clean_text(text)
 
     el = soup.find("article") or soup.body
     if el:
+        replace_image_tags_with_text(el)
         text = el.get_text("\n", strip=True)
-        return clean_text(text)
-
+        if len(text) > 50:
+            return clean_text(text)
     return ""
 
 
+def extract_text_from_soup(soup):
+    text = extract_text_from_section(soup)
+    if text:
+        return text
+    cleaned = extract_text_from_section(remove_navigation_nodes(soup))
+    return cleaned
+
+
 def clean_text(text):
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
     lines = [line.strip() for line in text.splitlines()]
-    return "\n".join([line for line in lines if line])
+
+    def is_navigation_line(line):
+        if not line:
+            return False
+        if re.search(r"[←→]", line):
+            return True
+        if re.search(r"上一章|下一章|没有了|返回目录|章节导航|前一章|后一章|目录|章节列表", line):
+            return True
+        return False
+
+    normalized = []
+    for line in lines:
+        if not line or is_navigation_line(line):
+            if normalized and normalized[-1] != "":
+                normalized.append("")
+            continue
+
+        if normalized and normalized[-1] != "":
+            prev = normalized[-1]
+            if not re.search(r"[。！？；：!?;:]$", prev) and not re.match(r"^[，,。！？；：!?;:]", line):
+                normalized[-1] = prev + " " + line
+            else:
+                normalized.append(line)
+        else:
+            normalized.append(line)
+
+    # Remove duplicate blank lines
+    result = []
+    for line in normalized:
+        if line == "" and result and result[-1] == "":
+            continue
+        result.append(line)
+
+    return "\n".join(result)
 
 
 def normalize_url(base_url, href):
