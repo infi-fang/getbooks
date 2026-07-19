@@ -3,7 +3,7 @@
 Dedicated downloader for miaomiaoks.com novel pages.
 
 Usage:
-  python download_miaomiaoks.py --url "https://www.miaomiaoks.com/read/105519/" --output "mybook.txt"
+  python3 download_miaomiaoks.py --url "https://www.miaomiaoks.com/read/32239/" --output "mybook.txt"
   python download_miaomiaoks.py --url "https://www.miaomiaoks.com/content/105519/1.html" --output "mybook.txt"
 
 This script collects all volume pages under a target novel, extracts the main text from each
@@ -11,6 +11,7 @@ volume, and writes a single TXT file with clear volume headings.
 """
 
 import argparse
+import os
 import re
 import time
 from urllib.parse import urljoin, urlparse
@@ -21,6 +22,11 @@ from bs4 import BeautifulSoup
 DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
+
+DEFAULT_FONT_MAPPING_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "font_mapping_simple.json",
+)
 
 
 def get_soup(url, session, timeout=20):
@@ -55,38 +61,71 @@ def remove_navigation_nodes(soup):
     return soup
 
 
-def replace_image_tags_with_text(el):
+def resolve_font_character(src, font_mapping):
+    if not font_mapping or not src:
+        return None
+
+    src = src.strip()
+    if src in font_mapping:
+        return font_mapping[src]
+
+    m = re.search(r"/asset/fonts/(\d+)\.png", src)
+    if m and m.group(1) in font_mapping:
+        return font_mapping[m.group(1)]
+
+    m = re.search(r"(\d+)\.png$", src)
+    if m and m.group(1) in font_mapping:
+        return font_mapping[m.group(1)]
+
+    return None
+
+
+def replace_image_tags_with_text(el, font_mapping=None):
     for img in el.find_all("img"):
+        src = img.get("src", "")
+        mapped_text = resolve_font_character(src, font_mapping)
+        if mapped_text is not None:
+            img.replace_with(mapped_text)
+            continue
+
+        if font_mapping:
+            img.replace_with("")
+            continue
+
         text = img.get("alt") or img.get("title") or img.get("aria-label") or ""
         if not text:
-            text = "*"
+            m = re.search(r"/asset/fonts/(\d+)\.png", src)
+            if m:
+                text = f"[[{m.group(1)}]]"
+            else:
+                text = "*"
         img.replace_with(text)
     return el
 
 
-def extract_text_from_section(soup):
+def extract_text_from_section(soup, font_mapping=None):
     for cls in ["content", "chapter-content", "read-content", "book-content"]:
         el = soup.find("div", class_=cls)
         if el:
-            replace_image_tags_with_text(el)
+            replace_image_tags_with_text(el, font_mapping)
             text = el.get_text("\n", strip=True)
             if len(text) > 50:
                 return clean_text(text)
 
     el = soup.find("article") or soup.body
     if el:
-        replace_image_tags_with_text(el)
+        replace_image_tags_with_text(el, font_mapping)
         text = el.get_text("\n", strip=True)
         if len(text) > 50:
             return clean_text(text)
     return ""
 
 
-def extract_text_from_soup(soup):
-    text = extract_text_from_section(soup)
+def extract_text_from_soup(soup, font_mapping=None):
+    text = extract_text_from_section(soup, font_mapping)
     if text:
         return text
-    cleaned = extract_text_from_section(remove_navigation_nodes(soup))
+    cleaned = extract_text_from_section(remove_navigation_nodes(soup), font_mapping)
     return cleaned
 
 
@@ -188,9 +227,50 @@ def build_output_title(soup, url):
     return title
 
 
-def download_miaomiaoks(url, output_path, delay=1.0, max_volumes=0):
+def load_font_mapping_file(path):
+    import json
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    normalized = {}
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if isinstance(value, dict):
+                char = value.get("character") or value.get("char") or value.get("value")
+            else:
+                char = value
+
+            if not isinstance(char, str):
+                continue
+
+            normalized[str(key)] = char
+
+            m = re.search(r"/asset/fonts/(\d+)\.png", str(key))
+            if m:
+                normalized[m.group(1)] = char
+
+            m = re.search(r"(\d+)\.png$", str(key))
+            if m:
+                normalized[m.group(1)] = char
+
+    return normalized
+
+
+def apply_font_mapping(text, mapping):
+    def replace_match(match):
+        font_id = match.group(1)
+        return mapping.get(font_id, mapping.get(str(font_id))) or match.group(0)
+
+    return re.sub(r"\[\[(\d+)\]\]", replace_match, text)
+
+
+def download_miaomiaoks(url, output_path, delay=1.0, max_volumes=0, font_mapping_path=None):
     session = requests.Session()
     session.headers.update(DEFAULT_HEADERS)
+
+    font_mapping = None
+    if font_mapping_path:
+        font_mapping = load_font_mapping_file(font_mapping_path)
 
     print("Fetching start URL:", url)
     soup = get_soup(url, session)
@@ -218,10 +298,13 @@ def download_miaomiaoks(url, output_path, delay=1.0, max_volumes=0):
         for idx, (label, link) in enumerate(volume_links, start=1):
             print(f"[{idx}/{len(volume_links)}] Downloading {label}: {link}")
             volume_soup = get_soup(link, session)
-            text = extract_text_from_soup(volume_soup)
+            text = extract_text_from_soup(volume_soup, font_mapping)
             if not text:
                 print("Warning: 未提取到内容，跳过", link)
                 continue
+
+            if font_mapping:
+                text = apply_font_mapping(text, font_mapping)
 
             section_title = f"{label}"
             out_file.write(section_title + "\n")
@@ -238,9 +321,20 @@ def main():
     parser.add_argument("--output", default="miaomiaoks_book.txt", help="Output TXT filename")
     parser.add_argument("--delay", type=float, default=1.0, help="Delay in seconds between requests")
     parser.add_argument("--max-volumes", type=int, default=0, help="Maximum number of volume pages to download (0 = all)")
+    parser.add_argument("--font-mapping", help="Optional JSON file with font ID to character mappings")
     args = parser.parse_args()
 
-    download_miaomiaoks(args.url, args.output, delay=args.delay, max_volumes=args.max_volumes)
+    font_mapping_path = args.font_mapping
+    if not font_mapping_path and os.path.exists(DEFAULT_FONT_MAPPING_PATH):
+        font_mapping_path = DEFAULT_FONT_MAPPING_PATH
+
+    download_miaomiaoks(
+        args.url,
+        args.output,
+        delay=args.delay,
+        max_volumes=args.max_volumes,
+        font_mapping_path=font_mapping_path,
+    )
 
 
 if __name__ == "__main__":

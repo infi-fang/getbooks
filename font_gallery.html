@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>miaomiaoks fonts gallery</title>
+  <style>
+    body { font-family: sans-serif; }
+    .grid { display:grid; grid-template-columns: repeat(10, 1fr); gap:12px; }
+    .item { text-align:center; padding:8px; border:1px solid #ccc; }
+    .item img { max-width:100%; height:auto; }
+    .id { margin-top:4px; font-size:14px; }
+  </style>
+</head>
+<body>
+  <h1>miaomiaoks fonts gallery</h1>
+  <div class="grid">
+    <!-- IMAGES -->
+  </div>
+  <script>
+    const container = document.querySelector('.grid');
+    for (let i = 1; i <= 104; i++) {
+      const item = document.createElement('div');
+      item.className = 'item';
+      const img = document.createElement('img');
+      img.src = 'fonts/' + i + '.png';
+      img.alt = '' + i;
+      const label = document.createElement('div');
+      label.className = 'id';
+      label.textContent = i;
+      item.appendChild(img);
+      item.appendChild(label);
+      container.appendChild(item);
+    }
+  </script>
+</body>
+</html>
