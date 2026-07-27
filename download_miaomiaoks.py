@@ -3,8 +3,11 @@
 Dedicated downloader for miaomiaoks.com novel pages.
 
 Usage:
-  python3 download_miaomiaoks.py --url "https://www.miaomiaoks.com/read/32239/" --output "mybook.txt"
-  python download_miaomiaoks.py --url "https://www.miaomiaoks.com/content/105519/1.html" --output "mybook.txt"
+  python3 download_miaomiaoks.py --url "https://www.miaomiaoks.com/read/240485/" --output "mybook.txt"
+
+
+  python3 download_miaomiaoks.py --url "https://www.miaomiaoks.com/read/140423/" --output "我的道家仙子.txt"
+  python3 download_miaomiaoks.py --url "https://www.miaomiaoks.com/read/252113/" --output "绑定系统后，我有四个女儿.txt"
 
 This script collects all volume pages under a target novel, extracts the main text from each
 volume, and writes a single TXT file with clear volume headings.
