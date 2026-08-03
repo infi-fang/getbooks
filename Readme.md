@@ -24,6 +24,12 @@
 - `requests`
 - `beautifulsoup4`
 
+推荐直接安装项目依赖：
+
+```bash
+python3 -m pip install -r requirements.txt
+```
+
 Playwright 相关脚本需要额外安装：
 
 ```bash

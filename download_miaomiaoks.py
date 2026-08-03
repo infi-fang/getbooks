@@ -5,9 +5,7 @@ Dedicated downloader for miaomiaoks.com novel pages.
 Usage:
   python3 download_miaomiaoks.py --url "https://www.miaomiaoks.com/read/240485/" --output "mybook.txt"
 
-
-  python3 download_miaomiaoks.py --url "https://www.miaomiaoks.com/read/140423/" --output "我的道家仙子.txt"
-  python3 download_miaomiaoks.py --url "https://www.miaomiaoks.com/read/252113/" --output "绑定系统后，我有四个女儿.txt"
+  python3 download_miaomiaoks.py --url "https://www.miaomiaoks.com/read/112756/" --output "text.txt"
 
 This script collects all volume pages under a target novel, extracts the main text from each
 volume, and writes a single TXT file with clear volume headings.
@@ -19,8 +17,19 @@ import re
 import time
 from urllib.parse import urljoin, urlparse
 
-import requests
-from bs4 import BeautifulSoup
+try:
+    import requests
+except ModuleNotFoundError as exc:
+    raise ModuleNotFoundError(
+        "Missing dependency: requests. Install project dependencies with 'python3 -m pip install -r requirements.txt'."
+    ) from exc
+
+try:
+    from bs4 import BeautifulSoup
+except ModuleNotFoundError as exc:
+    raise ModuleNotFoundError(
+        "Missing dependency: beautifulsoup4. Install project dependencies with 'python3 -m pip install -r requirements.txt'."
+    ) from exc
 
 DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -111,14 +120,30 @@ def extract_text_from_section(soup, font_mapping=None):
         el = soup.find("div", class_=cls)
         if el:
             replace_image_tags_with_text(el, font_mapping)
-            text = el.get_text("\n", strip=True)
+            paragraphs = [
+                p.get_text(" ", strip=True)
+                for p in el.find_all("p", recursive=False)
+                if p.get_text(" ", strip=True)
+            ]
+            if paragraphs:
+                return clean_text("\n\n".join(paragraphs))
+
+            text = el.get_text(" ", strip=True)
             if len(text) > 50:
                 return clean_text(text)
 
     el = soup.find("article") or soup.body
     if el:
         replace_image_tags_with_text(el, font_mapping)
-        text = el.get_text("\n", strip=True)
+        paragraphs = [
+            p.get_text(" ", strip=True)
+            for p in el.find_all("p", recursive=False)
+            if p.get_text(" ", strip=True)
+        ]
+        if paragraphs:
+            return clean_text("\n\n".join(paragraphs))
+
+        text = el.get_text(" ", strip=True)
         if len(text) > 50:
             return clean_text(text)
     return ""
@@ -136,39 +161,72 @@ def clean_text(text):
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     lines = [line.strip() for line in text.splitlines()]
 
+    def normalize_spacing(line):
+        line = re.sub(r"[\t ]+", " ", line)
+        line = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])", "", line)
+        line = re.sub(r"(?<=[\u4e00-\u9fff])\s+(?=[，。！？；：,.!?;:])", "", line)
+        line = re.sub(r"(?<=[，。！？；：,.!?;:])\s+(?=[\u4e00-\u9fff])", "", line)
+        return line.strip()
+
     def is_navigation_line(line):
         if not line:
             return False
+        if "取消转码/退出阅读模式" in line and "作者:" in line and "字数:" in line:
+            return True
+        if re.match(r"^如果出现文字缺失.*退出阅读模式.*作者:.*字数:\d+.*\*+$", line):
+            return True
         if re.search(r"[←→]", line):
             return True
         if re.search(r"上一章|下一章|没有了|返回目录|章节导航|前一章|后一章|目录|章节列表", line):
             return True
         return False
 
-    normalized = []
+    def split_boilerplate(line):
+        match = re.match(
+            r"^(如果出现文字缺失，格式混乱请取消转码/退出阅读模式\s*作者:[^字]+字数:\d+\s*\*+)(.*)$",
+            line,
+        )
+        if match:
+            head = match.group(1).strip()
+            tail = match.group(2).strip()
+            if tail:
+                return [("boilerplate", head), ("body", tail)]
+            return [("boilerplate", head)]
+        return [("body", line)]
+
+    paragraphs = []
+    current = []
+
+    def flush_current():
+        if not current:
+            return
+        paragraph = "\n".join(current)
+        if paragraph:
+            paragraphs.append(paragraph)
+        current.clear()
+
     for line in lines:
-        if not line or is_navigation_line(line):
-            if normalized and normalized[-1] != "":
-                normalized.append("")
+        line = normalize_spacing(line)
+        if not line:
+            flush_current()
             continue
 
-        if normalized and normalized[-1] != "":
-            prev = normalized[-1]
-            if not re.search(r"[。！？；：!?;:]$", prev) and not re.match(r"^[，,。！？；：!?;:]", line):
-                normalized[-1] = prev + " " + line
-            else:
-                normalized.append(line)
-        else:
-            normalized.append(line)
+        for piece_type, piece in split_boilerplate(line):
+            if not piece:
+                flush_current()
+                continue
+            if piece_type == "boilerplate":
+                flush_current()
+                paragraphs.append(piece)
+                continue
+            if is_navigation_line(piece):
+                flush_current()
+                continue
+            current.append(piece)
 
-    # Remove duplicate blank lines
-    result = []
-    for line in normalized:
-        if line == "" and result and result[-1] == "":
-            continue
-        result.append(line)
+    flush_current()
 
-    return "\n".join(result)
+    return "\n\n".join(paragraphs)
 
 
 def normalize_url(base_url, href):
