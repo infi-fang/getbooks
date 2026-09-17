@@ -3,9 +3,16 @@
 Dedicated downloader for miaomiaoks.com novel pages.
 
 Usage:
-  python3 download_miaomiaoks.py --url "https://www.miaomiaoks.com/read/240485/" --output "mybook.txt"
 
-  python3 download_miaomiaoks.py --url "https://www.miaomiaoks.com/read/112756/" --output "text.txt"
+python3 download_miaomiaoks.py --url "https://www.miaomiaoks.com/read/5090/" --output "异世之风流大法师.txt"
+
+python3 download_miaomiaoks.py --url "https://www.miaomiaoks.com/read/8969/" --output "斗破苍穹之始于云岚.txt"
+
+python3 download_miaomiaoks.py --url "https://www.miaomiaoks.com/read/98995/" --output "我的校长生涯.txt"
+
+python3 download_miaomiaoks.py --url "https://www.miaomiaoks.com/read/1414/" --output "风月都市后宮录.txt"
+
+
 
 This script collects all volume pages under a target novel, extracts the main text from each
 volume, and writes a single TXT file with clear volume headings.
@@ -34,6 +41,8 @@ except ModuleNotFoundError as exc:
 DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 }
+
+DEFAULT_DELAY_SECONDS = 2.0
 
 DEFAULT_FONT_MAPPING_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
@@ -325,7 +334,7 @@ def apply_font_mapping(text, mapping):
     return re.sub(r"\[\[(\d+)\]\]", replace_match, text)
 
 
-def download_miaomiaoks(url, output_path, delay=1.0, max_volumes=0, font_mapping_path=None):
+def download_miaomiaoks(url, output_path, delay=DEFAULT_DELAY_SECONDS, max_volumes=0, font_mapping_path=None):
     session = requests.Session()
     session.headers.update(DEFAULT_HEADERS)
 
@@ -380,7 +389,7 @@ def main():
     parser = argparse.ArgumentParser(description="Download novel text from miaomiaoks.com")
     parser.add_argument("--url", required=True, help="Target novel URL, e.g. https://www.miaomiaoks.com/read/105519/")
     parser.add_argument("--output", default="miaomiaoks_book.txt", help="Output TXT filename")
-    parser.add_argument("--delay", type=float, default=1.0, help="Delay in seconds between requests")
+    parser.add_argument("--delay", type=float, default=DEFAULT_DELAY_SECONDS, help="Delay in seconds between requests (default: slower to reduce ban risk)")
     parser.add_argument("--max-volumes", type=int, default=0, help="Maximum number of volume pages to download (0 = all)")
     parser.add_argument("--font-mapping", help="Optional JSON file with font ID to character mappings")
     args = parser.parse_args()
